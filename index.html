@@ -405,7 +405,27 @@
 
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
+// ═══════════════════════════════════════════════════════════════
+// FIREBASE CONFIG — Cole aqui suas credenciais do Firebase
+// ═══════════════════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyChTyFPQKWUohC8VbhuEx9HrzITo76VPu0",
+  authDomain: "dashboard-financeira-6505d.firebaseapp.com",
+  databaseURL: "https://dashboard-financeira-6505d-default-rtdb.firebaseio.com",
+  projectId: "dashboard-financeira-6505d",
+  storageBucket: "dashboard-financeira-6505d.firebasestorage.app",
+  messagingSenderId: "256119453513",
+  appId: "1:256119453513:web:a58d239a5d002fdb7b4c98"
+};
+// ═══════════════════════════════════════════════════════════════
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const dbRef = db.ref('financeiro-casal');
+
 const STORAGE_KEY = 'financeiro-casal-dados';
 let data = { transactions: [], goal: { target: 0, saved: 0 } };
 
@@ -435,36 +455,50 @@ function findCat(name){
 function catColor(name){ const c = findCat(name); return c ? c.color : 'var(--grey)'; }
 function catIcon(name){ const c = findCat(name); return c ? c.icon : '🔹'; }
 
-async function loadData(){
-  try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    if(res && res.value){
-      const parsed = JSON.parse(res.value);
-      data.transactions = parsed.transactions || [];
-      data.goal = parsed.goal || {target:0, saved:0};
+function loadData(){
+  // Escuta em tempo real — se sua noiva adicionar algo, aparece pra você na hora
+  dbRef.on('value', (snapshot) => {
+    const val = snapshot.val();
+    if(val){
+      data.transactions = val.transactions || [];
+      data.goal = val.goal || {target:0, saved:0};
+    } else {
+      data = { transactions: [], goal: {target:0, saved:0} };
     }
-  }catch(e){
-    console.log('Nenhum dado salvo ainda, começando do zero.', e);
-  }
+    // Salva cópia local como backup
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    render();
+  }, (error) => {
+    console.warn('Firebase indisponível, usando dados locais:', error);
+    // Fallback: carrega do localStorage se Firebase falhar
+    try{
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if(saved){
+        const parsed = JSON.parse(saved);
+        data.transactions = parsed.transactions || [];
+        data.goal = parsed.goal || {target:0, saved:0};
+      }
+    }catch(e){}
+    render();
+  });
+
   document.getElementById('footerNote').innerHTML =
-    'os dados ficam salvos automaticamente nesta conta<br>' +
+    'dados salvos na nuvem — acesse de qualquer dispositivo<br>' +
     '<button class="reset-btn" id="resetBtn">Limpar todos os dados</button>';
   document.getElementById('resetBtn').addEventListener('click', resetAll);
-  render();
 }
 
-async function saveData(){
-  try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify(data), false);
-  }catch(e){
-    console.error('Erro ao salvar', e);
-  }
+function saveData(){
+  // Salva no Firebase (nuvem)
+  dbRef.set(data).catch(err => console.error('Erro ao salvar no Firebase:', err));
+  // Salva local como backup
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
-async function resetAll(){
+function resetAll(){
   if(!confirm('Tem certeza que quer apagar todos os lançamentos e a meta?')) return;
   data = { transactions: [], goal: {target:0, saved:0} };
-  await saveData();
+  saveData();
   render();
 }
 
@@ -656,16 +690,16 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
-async function deleteEntry(id){
+function deleteEntry(id){
   data.transactions = data.transactions.filter(t=>String(t.id)!==String(id));
-  await saveData();
+  saveData();
   render();
 }
 
 document.getElementById('fType').addEventListener('change', populateCatSelect);
 document.getElementById('fCatSelect').addEventListener('change', toggleCustomCat);
 
-document.getElementById('entryForm').addEventListener('submit', async (e)=>{
+document.getElementById('entryForm').addEventListener('submit', (e)=>{
   e.preventDefault();
   const type = document.getElementById('fType').value;
   const desc = document.getElementById('fDesc').value.trim();
@@ -677,7 +711,7 @@ document.getElementById('entryForm').addEventListener('submit', async (e)=>{
   if(!desc || !category || !amount || !date) return;
 
   data.transactions.push({ id: Date.now(), type, desc, category, amount, date });
-  await saveData();
+  saveData();
   e.target.reset();
   document.getElementById('fType').value = type;
   populateCatSelect();
@@ -687,12 +721,12 @@ document.getElementById('entryForm').addEventListener('submit', async (e)=>{
 
 document.getElementById('monthFilter').addEventListener('change', render);
 
-document.getElementById('goalSaveBtn').addEventListener('click', async ()=>{
+document.getElementById('goalSaveBtn').addEventListener('click', ()=>{
   const t = parseFloat(document.getElementById('goalTarget').value);
   const s = parseFloat(document.getElementById('goalSaved').value);
   if(!isNaN(t)) data.goal.target = t;
   if(!isNaN(s)) data.goal.saved = s;
-  await saveData();
+  saveData();
   render();
 });
 
